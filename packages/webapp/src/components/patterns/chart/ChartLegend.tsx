@@ -1,4 +1,4 @@
-import { Check, X } from 'lucide-react';
+import { Check, Filter, X } from 'lucide-react';
 
 import { cn } from '@/utils/utils';
 
@@ -8,10 +8,12 @@ import type { ChartInteractions } from './useChartInteractions';
 interface ChartLegendProps {
     series: ChartSeries[];
     interactions: ChartInteractions;
+    /** Drill in to a single series' value via a per-row funnel. Omitted for the 'rest' rollup. */
+    onSeriesClick?: (series: ChartSeries) => void;
 }
 
-/** Interactive legend: hover a row to highlight its band, click the label to isolate, click the swatch to hide/show. */
-export const ChartLegend: React.FC<ChartLegendProps> = ({ series, interactions }) => {
+/** Interactive legend: hover a row to highlight its band, click the label to isolate, click the swatch to hide/show, click the funnel to filter. */
+export const ChartLegend: React.FC<ChartLegendProps> = ({ series, interactions, onSeriesClick }) => {
     const { hidden, isSeriesHidden, toggleIsolate, toggleHidden, hoverSeries, unhoverSeries } = interactions;
     return (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-3 gap-y-1.5 pt-3 max-h-[88px] overflow-y-auto flex-shrink-0 text-xs">
@@ -24,7 +26,9 @@ export const ChartLegend: React.FC<ChartLegendProps> = ({ series, interactions }
                 };
                 const onLeave = () => unhoverSeries();
                 return (
-                    <div key={s.key} className="flex min-w-0 items-center gap-1.5">
+                    // `group/legend` lets the drill-in funnel reveal on row hover; the band-highlight
+                    // hover lives on the swatch/label buttons (below), not the whole row.
+                    <div key={s.key} className="group/legend flex min-w-0 items-center gap-1.5">
                         {/* Hover the swatch to reveal ✕/✓; click to toggle this series off/on. */}
                         <button
                             type="button"
@@ -63,6 +67,18 @@ export const ChartLegend: React.FC<ChartLegendProps> = ({ series, interactions }
                         >
                             {s.label}
                         </button>
+                        {/* Drill in: filter the panel to this value. Hidden until the row is hovered; never on the 'rest' rollup. */}
+                        {onSeriesClick && !s.isRest && s.value !== undefined && (
+                            <button
+                                type="button"
+                                onClick={() => onSeriesClick(s)}
+                                className="shrink-0 text-text-muted opacity-0 transition-opacity hover:text-text-strong group-hover/legend:opacity-100"
+                                aria-label={`Filter to ${s.label}`}
+                                title={`Filter to ${s.label}`}
+                            >
+                                <Filter className="size-3" />
+                            </button>
+                        )}
                     </div>
                 );
             })}

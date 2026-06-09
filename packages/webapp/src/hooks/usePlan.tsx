@@ -8,6 +8,7 @@ import type {
     ApiPlan,
     BreakdownDimensions,
     GetBillingUsage,
+    GetBillingUsageTopDimensionValues,
     GetPlan,
     GetPlans,
     GetUsage,
@@ -128,34 +129,55 @@ export function useApiGetBillingUsage(env: string, timeframe?: { start: string; 
 }
 
 /**
- * Fetches one metric's breakdown: the top-N values of `dimension` plus a 'rest'
- * rollup, under `usage[metric].breakdown`. Always queries ClickHouse (breakdowns
- * don't exist on the Orb path). The panel's headline total still comes from
- * `useApiGetBillingUsage`.
+ * Per-panel usage detail. Fires one request scoped to a single metric
+ * (`metrics=<metric>`) carrying an optional `breakdown[<metric>]=<dimension>`
+ * and/or `filter[<metric>]=<dim>:<value>` spec, covering every drill-in state:
+ *
+ *  - breakdown only → top-N dimension-value series + 'rest' rollup under
+ *    `usage[metric].breakdown` (top-level `usage` empty).
+ *  - filter only → the metric scoped to one value, single series in the
+ *    top-level `usage[metric].usage` with a real filtered `total` (no breakdown).
+ *  - filter + breakdown (different dims) → the breakdown computed within the
+ *    filtered slice, plus a filtered `total` so the headline matches the series.
+ *
+ * These are ClickHouse-only features, so the request forces `source=clickhouse`
+ * (honoured under the dev gate). The caller keeps using `useApiGetBillingUsage`
+ * for the unfiltered page-load totals.
  */
-export function useApiGetBillingUsageBreakdown<M extends UsageMetric>(
+export function useApiGetBillingUsageDetail<M extends UsageMetric>(
     env: string,
     timeframe: { start: string; end: string } | undefined,
     metric: M,
-    dimension: BreakdownDimensions[M] | null,
+    spec: {
+        dimension?: BreakdownDimensions[M] | null;
+        filter?: { dimension: BreakdownDimensions[M]; value: string } | null;
+    },
     top: number,
     options?: { enabled?: boolean }
 ) {
+    const dimension = spec.dimension ?? null;
+    const filter = spec.filter ?? null;
     return useQuery<GetBillingUsage['Success'], APIError>({
-        enabled: Boolean(env) && Boolean(timeframe) && Boolean(dimension) && (options?.enabled ?? true),
-        queryKey: [...GetBillingUsageQueryKey, 'breakdown', timeframe, metric, dimension, top],
+        // Fetch lazily: only once the panel has something to detail (a breakdown
+        // or a filter). The filter must be part of the key so changing the
+        // drilled-into value refetches instead of serving the previous slice.
+        enabled: Boolean(env) && Boolean(timeframe) && (Boolean(dimension) || Boolean(filter)) && (options?.enabled ?? true),
+        queryKey: [...GetBillingUsageQueryKey, 'detail', timeframe, metric, dimension, filter?.dimension ?? null, filter?.value ?? null, top],
         queryFn: async (): Promise<GetBillingUsage['Success']> => {
             const params = new URLSearchParams({ env });
             if (timeframe) {
                 params.append('from', timeframe.start);
                 params.append('to', timeframe.end);
             }
-            // Breakdowns only exist on the ClickHouse path; force the source so it
-            // resolves under the dev gate (FLAG_ALLOW_OVERRIDE_GETUSAGE_SERVICE).
+            // breakdown / filter only exist on the ClickHouse path; force the
+            // source so it resolves under the dev gate (FLAG_ALLOW_OVERRIDE_GETUSAGE_SERVICE).
             params.append('source', 'clickhouse');
             params.append('metrics', metric);
             if (dimension) {
                 params.append(`breakdown[${metric}]`, dimension);
+            }
+            if (filter) {
+                params.append(`filter[${metric}]`, `${filter.dimension}:${filter.value}`);
             }
             params.append('top', String(top));
 
@@ -164,6 +186,51 @@ export function useApiGetBillingUsageBreakdown<M extends UsageMetric>(
             });
 
             const json = (await res.json()) as GetBillingUsage['Reply'];
+            if (res.status !== 200 || 'error' in json) {
+                throw new APIError({ res, json });
+            }
+
+            return json;
+        }
+    });
+}
+
+export const GetBillingUsageTopDimensionValuesQueryKey = ['plans', 'billing-usage', 'top-dimension-values'];
+
+/**
+ * Top-N seen values for a (metric, dimension) over a timeframe, ranked by usage.
+ * Backs the filter typeahead so a value can be picked even when it isn't a
+ * visible breakdown slice (the long tail still needs free-text, since values
+ * below the cap never appear here). Lazy — only fires when `enabled` and a
+ * dimension is set.
+ */
+export function useApiGetBillingUsageTopDimensionValues<M extends UsageMetric>(
+    env: string,
+    metric: M,
+    dimension: BreakdownDimensions[M] | null,
+    timeframe: { start: string; end: string } | undefined,
+    limit: number,
+    options?: { enabled?: boolean }
+) {
+    return useQuery<GetBillingUsageTopDimensionValues['Success'], APIError>({
+        enabled: Boolean(env) && Boolean(timeframe) && Boolean(dimension) && (options?.enabled ?? true),
+        queryKey: [...GetBillingUsageTopDimensionValuesQueryKey, timeframe, metric, dimension, limit],
+        queryFn: async (): Promise<GetBillingUsageTopDimensionValues['Success']> => {
+            const params = new URLSearchParams({ env, metric, limit: String(limit) });
+            if (timeframe) {
+                params.append('from', timeframe.start);
+                params.append('to', timeframe.end);
+            }
+            // `dimension` is non-null whenever the query is enabled (guarded above).
+            if (dimension) {
+                params.append('dimension', dimension);
+            }
+
+            const res = await apiFetch(`/api/v1/plans/billing-usage/top-dimension-values?${params.toString()}`, {
+                method: 'GET'
+            });
+
+            const json = (await res.json()) as GetBillingUsageTopDimensionValues['Reply'];
             if (res.status !== 200 || 'error' in json) {
                 throw new APIError({ res, json });
             }

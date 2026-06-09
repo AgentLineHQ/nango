@@ -28,14 +28,30 @@ interface BreakdownChartProps {
     series: ChartSeries[];
     todayDateKey: string;
     interactions: ChartInteractions;
+    /** Drill in to a single series' value by clicking its band. Omitted for the 'rest' rollup. */
+    onSeriesClick?: (series: ChartSeries) => void;
 }
 
 /**
  * The recharts chart for a usage panel — a single "total" series, or a stacked
  * breakdown with hover/click interactions.
  */
-export const BreakdownChart: React.FC<BreakdownChartProps> = ({ chartData, config, isCumulative, isBreakdown, series, todayDateKey, interactions }) => {
+export const BreakdownChart: React.FC<BreakdownChartProps> = ({
+    chartData,
+    config,
+    isCumulative,
+    isBreakdown,
+    series,
+    todayDateKey,
+    interactions,
+    onSeriesClick
+}) => {
     const { hoveredKey, dimByHover, isSeriesHidden, hoverSeries, unhoverSeries, toggleIsolate } = interactions;
+    // Clicking a band drills in (filters to that value) when drill-in is enabled and the
+    // series is a real value; otherwise it isolates the series (isolate is also reachable
+    // via the legend label, so drill-in never removes that affordance).
+    const bandClick = (s: ChartSeries) => (onSeriesClick && !s.isRest && s.value !== undefined ? () => onSeriesClick(s) : () => toggleIsolate(s.key));
+    const isDrillable = (s: ChartSeries) => Boolean(onSeriesClick) && !s.isRest && s.value !== undefined;
     const ChartComponent = isCumulative ? AreaChart : BarChart;
 
     // Stacking follows declaration order (first series = bottom), so pin the neutral
@@ -61,12 +77,13 @@ export const BreakdownChart: React.FC<BreakdownChartProps> = ({ chartData, confi
                             dot={false}
                             // The active dot sits on top of the band; mirror the band's handlers so
                             // hovering it doesn't drop the highlight / single-series tooltip.
-                            activeDot={{ onMouseEnter: () => hoverSeries(s.key), onMouseLeave: () => unhoverSeries(), onClick: () => toggleIsolate(s.key) }}
+                            activeDot={{ onMouseEnter: () => hoverSeries(s.key), onMouseLeave: () => unhoverSeries(), onClick: bandClick(s) }}
                             hide={isSeriesHidden(s.key)}
                             isAnimationActive={false}
                             onMouseEnter={() => hoverSeries(s.key)}
                             onMouseLeave={() => unhoverSeries()}
-                            onClick={() => toggleIsolate(s.key)}
+                            onClick={bandClick(s)}
+                            className={isDrillable(s) ? 'cursor-pointer' : undefined}
                         />
                     );
                 }
@@ -81,7 +98,8 @@ export const BreakdownChart: React.FC<BreakdownChartProps> = ({ chartData, confi
                         isAnimationActive={false}
                         onMouseEnter={() => hoverSeries(s.key)}
                         onMouseLeave={() => unhoverSeries()}
-                        onClick={() => toggleIsolate(s.key)}
+                        onClick={bandClick(s)}
+                        className={isDrillable(s) ? 'cursor-pointer' : undefined}
                     />
                 );
             });

@@ -8741,6 +8741,9 @@ The **Default - Full access** key that comes with each environment already has a
 
 | Scope | Description |
 |-------|-------------|
+| `environment:functions:list` | List deployed functions and provider templates |
+| `environment:functions:read` | Read a single deployed function |
+| `environment:functions:delete` | Delete a deployed function |
 | `environment:functions:compile` | Compile function source code |
 | `environment:functions:dryrun` | Dry run function source code |
 
@@ -9147,6 +9150,10 @@ Returns a single deployed function.
 ## Get a function's source code
 
 Source: https://nango.dev/docs/reference/backend/http-api/functions/code.md
+
+<Info>
+  Requires an API key with one of: `environment:integrations:read` or `environment:integrations:read_credentials`. [Learn more about API key scopes](/reference/backend/http-api/api-keys#scopes).
+</Info>
 
 Returns the TypeScript source code of a function for a given integration.
 

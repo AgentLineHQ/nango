@@ -9124,6 +9124,42 @@ Source: https://nango.dev/docs/reference/backend/http-api/connections/delete.md
   Requires an API key with the `environment:connections:delete` scope. [Learn more about API key scopes](/reference/backend/http-api/api-keys#scopes).
 </Info>
 
+## List functions
+
+Source: https://nango.dev/docs/reference/backend/http-api/functions/list.md
+
+<Info>
+  Requires an API key with the `environment:functions:list` scope. [Learn more about API key scopes](/reference/backend/http-api/api-keys#scopes).
+</Info>
+
+Returns the functions deployed to an integration.
+
+## Get a function
+
+Source: https://nango.dev/docs/reference/backend/http-api/functions/get.md
+
+<Info>
+  Requires an API key with the `environment:functions:read` scope. [Learn more about API key scopes](/reference/backend/http-api/api-keys#scopes).
+</Info>
+
+Returns a single deployed function.
+
+## Get a function's source code
+
+Source: https://nango.dev/docs/reference/backend/http-api/functions/code.md
+
+Returns the TypeScript source code of a function for a given integration.
+
+## Delete a function
+
+Source: https://nango.dev/docs/reference/backend/http-api/functions/delete.md
+
+<Info>
+  Requires an API key with the `environment:functions:delete` scope. [Learn more about API key scopes](/reference/backend/http-api/api-keys#scopes).
+</Info>
+
+Deletes a deployed function and enqueues its async teardown. Functions managed by `nango deploy` (repo source) cannot be deleted through this endpoint.
+
 ## Compile a function
 
 Source: https://nango.dev/docs/reference/backend/http-api/functions/compile.md
@@ -9675,6 +9711,16 @@ Source: https://nango.dev/docs/reference/backend/http-api/providers/get.md
 }
 ```
 </ResponseExample>
+
+## List provider templates
+
+Source: https://nango.dev/docs/reference/backend/http-api/providers/templates.md
+
+<Info>
+  Requires an API key with the `environment:functions:list` scope. [Learn more about API key scopes](/reference/backend/http-api/api-keys#scopes).
+</Info>
+
+Returns the template functions available in the catalog for a provider.
 
 ## List connections (deprecated)
 

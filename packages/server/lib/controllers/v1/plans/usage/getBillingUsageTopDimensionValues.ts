@@ -66,8 +66,13 @@ export const getBillingUsageTopDimensionValues = asyncWrapper<GetBillingUsageTop
 
     let values: { id: string; label: string }[];
     if (query.dimension === 'environment_id') {
+        // `environment_id` is filtered by env NAME (resolved to the id server-side), so the
+        // value the caller filters by IS the name — return it as both `id` and `label`.
         const names = await environmentService.getEnvironmentNamesByIds(result.value.values.map(Number));
-        values = result.value.values.map((id) => ({ id, label: names.get(Number(id)) ?? id }));
+        values = result.value.values.map((rawId) => {
+            const name = names.get(Number(rawId)) ?? rawId;
+            return { id: name, label: name };
+        });
     } else {
         values = result.value.values.map((id) => ({ id, label: id }));
     }

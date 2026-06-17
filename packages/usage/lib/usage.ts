@@ -107,6 +107,32 @@ async function resolveEnvironmentNamesInBreakdown(
     }
 }
 
+/**
+ * The filter API keys `environment_id` by env NAME (the dashboard shows/links env
+ * names — mirroring the breakdown output, which already resolves id → name). This
+ * resolves those names back to the numeric ids the ClickHouse column stores, before
+ * querying. Already-numeric values pass through (older links); an unknown name
+ * resolves to a non-matching id so the filter simply returns nothing.
+ */
+async function resolveEnvironmentFilterIds(
+    accountId: number,
+    filter: { [M in UsageMetric]?: { dimension: BreakdownDimensions[M]; value: string } | undefined } | undefined
+): Promise<void> {
+    if (!filter) return;
+    const envFilters = (Object.keys(filter) as UsageMetric[])
+        .map((m) => filter[m])
+        .filter(
+            (f): f is { dimension: BreakdownDimensions[UsageMetric]; value: string } =>
+                Boolean(f) && f!.dimension === 'environment_id' && !/^-?\d+$/.test(f!.value)
+        );
+    if (envFilters.length === 0) return;
+    const envs = await environmentService.getEnvironmentsByAccountId(accountId);
+    const idByName = new Map(envs.map((e) => [e.name, String(e.id)]));
+    for (const f of envFilters) {
+        f.value = idByName.get(f.value) ?? '-1';
+    }
+}
+
 export interface UsageStatus {
     accountId: number;
     metric: UsageMetric;
@@ -598,6 +624,9 @@ export class UsageTracker implements IUsageTracker {
         }
     ): Promise<Result<BillingUsageMetrics>> {
         const { timeframe, metrics: scopedMetrics, breakdown, top, maxExecutionSeconds, filter } = opts;
+        // `environment_id` filters arrive as env names; resolve them to the numeric ids the
+        // CH column stores before any query reads `filter`.
+        await resolveEnvironmentFilterIds(accountId, filter);
         const scope = scopedMetrics ? new Set(scopedMetrics) : null;
         const inScope = (m: UsageMetric): boolean => !scope || scope.has(m);
         const counterMetrics: CounterUsageMetric[] = COUNTER_METRICS.filter(inScope);

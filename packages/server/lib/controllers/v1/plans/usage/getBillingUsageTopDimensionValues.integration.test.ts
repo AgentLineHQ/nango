@@ -169,8 +169,8 @@ describe(`GET ${route}`, () => {
             ]);
         });
 
-        it('resolves environment_id to the env name (label) while keeping the raw id', async () => {
-            const { apiKey, envId, envName } = await seedAccount();
+        it('resolves environment_id to the env name (filtered by name, so id === label === name)', async () => {
+            const { apiKey, envName } = await seedAccount();
             const res = await api.fetch(route, {
                 token: apiKey.secret,
                 query: {
@@ -182,7 +182,8 @@ describe(`GET ${route}`, () => {
                 }
             });
             isSuccess(res.json);
-            expect(res.json.data.values).toEqual([{ id: String(envId), label: envName }]);
+            // environment_id is filtered by name, so the value to filter by IS the name.
+            expect(res.json.data.values).toEqual([{ id: envName, label: envName }]);
         });
     });
 });

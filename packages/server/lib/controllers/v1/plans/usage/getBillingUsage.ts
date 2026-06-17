@@ -53,7 +53,9 @@ const parseFilter = (allowedDims: readonly string[]) =>
                 ctx.addIssue({ code: 'custom', message: `invalid dimension "${dimension}" for this metric` });
                 return z.NEVER;
             }
-            const paramType = FILTER_PARAM_TYPE_FOR_DIM[dimension] ?? 'String';
+            // `environment_id` is filtered by env NAME at the API (resolved to the numeric id
+            // server-side), so validate it as a free string rather than the CH column's Int64.
+            const paramType = dimension === 'environment_id' ? 'String' : (FILTER_PARAM_TYPE_FOR_DIM[dimension] ?? 'String');
             if (paramType === 'Int64' && !/^-?\d+$/.test(value)) {
                 ctx.addIssue({ code: 'custom', message: `value "${value}" is not a valid integer for dimension "${dimension}"` });
                 return z.NEVER;

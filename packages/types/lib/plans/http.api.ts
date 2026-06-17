@@ -81,9 +81,9 @@ export type GetBillingUsageTopDimensionValues = Endpoint<{
     }[UsageMetric];
     Success: {
         data: {
-            // `id` is the raw CH value (used to filter back); `label` is the
-            // display string — resolved server-side for `environment_id`,
-            // equal to `id` for the other slug-ish dims.
+            // `id` is the value to filter by; `label` is the display string. For
+            // `environment_id` both are the env name (the filter resolves the name
+            // to the numeric id server-side); for the other slug-ish dims id === label.
             values: { id: string; label: string }[];
         };
     };

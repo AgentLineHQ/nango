@@ -595,7 +595,7 @@ describe(`GET ${route}`, () => {
             expect(res.json.error.code).toBe('invalid_query_params');
         });
 
-        it('rejects a non-integer value for an Int64 dim (environment_id)', async () => {
+        it('accepts an environment_id filter by env name (resolved to the id server-side)', async () => {
             const { apiKey } = await seedAccount();
             const res = await api.fetch(route, {
                 token: apiKey.secret,
@@ -604,12 +604,14 @@ describe(`GET ${route}`, () => {
                     from: day0.toISOString(),
                     to: end.toISOString(),
                     source: 'clickhouse',
-                    filter: { proxy: 'environment_id:not-a-number' }
+                    metrics: ['proxy'],
+                    filter: { proxy: 'environment_id:does-not-exist' }
                 } as any
             });
-            isError(res.json);
-            expect(res.res.status).toBe(400);
-            expect(res.json.error.code).toBe('invalid_query_params');
+            // environment_id is filtered by name (a free string), not rejected as a non-int.
+            // An unknown name resolves to no id, so the filter simply matches nothing.
+            isSuccess(res.json);
+            expect(res.json.data.usage.proxy.total).toBe(0);
         });
 
         it('rejects a non-boolean value for a Bool dim (success)', async () => {

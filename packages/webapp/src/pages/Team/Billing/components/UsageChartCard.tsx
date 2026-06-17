@@ -1,14 +1,11 @@
-import { X } from 'lucide-react';
 import { parseAsString, useQueryState } from 'nuqs';
 import { useMemo } from 'react';
 
-import { BreakdownControls } from './BreakdownControls';
-import { UsageFilterControl } from './UsageFilterControl';
-import { BREAKDOWN_DIMENSIONS, DEFAULT_TOP_N, DIMENSION_LABELS, formatDimensionValue, metricsSupportingDimension } from '../usageBreakdown';
+import { BreakdownFilterControl } from './BreakdownFilterControl';
+import { BREAKDOWN_DIMENSIONS, DEFAULT_TOP_N, metricsSupportingDimension } from '../usageBreakdown';
 import { toChartSeries } from '../usageChartSeries';
 import { useBreakdownEnabled } from '../useBreakdownEnabled';
 import { ChartCard } from '@/components/patterns/chart';
-import { KeyValueBadge } from '@/components/ui/KeyValueBadge';
 import { useApiGetBillingUsageDetail } from '@/hooks/usePlan';
 
 import type { AnyBreakdownDimension } from '../usageBreakdown';
@@ -92,13 +89,9 @@ export const UsageChartCard: React.FC<UsageChartCardProps> = ({ metric, data, is
         void setDimParam(null);
     };
 
-    // Clearing the filter "returns to the breakdown": keep the current breakdown if one is
-    // active, otherwise restore it to the filter's dimension (the lens drilled in from).
+    // Group and filter are independent slots, so clearing the filter only removes the filter —
+    // it never touches the grouping.
     const clearFilter = () => {
-        if (!filter) return;
-        if (dimension === null) {
-            void setDimParam(filter.dimension);
-        }
         void setFilterParam(null);
     };
 
@@ -108,10 +101,6 @@ export const UsageChartCard: React.FC<UsageChartCardProps> = ({ metric, data, is
         void setFilterParam(`${dim}:${value}`);
         if (rawDimension === dim) void setDimParam(null);
     };
-
-    // The filtered dimension is excluded from the breakdown options (the backend rejects
-    // filtering and breaking down by the same dim).
-    const availableDimensions = filter ? dimensions.filter((d) => d !== filter.dimension) : dimensions;
 
     // "Apply to all" shows when at least one other applicable panel has a different selection.
     const canApplyToAll = (dimension === null || metricsSupportingDimension(dimension).length > 1) && isDivergingFromGlobal(metric, dimension);
@@ -123,30 +112,19 @@ export const UsageChartCard: React.FC<UsageChartCardProps> = ({ metric, data, is
     const totalOverride = inBreakdownMode && inFilterMode ? detailMetric?.total : undefined;
 
     const headerActions = showControls ? (
-        <>
-            {filter && (
-                <KeyValueBadge label={DIMENSION_LABELS[filter.dimension]} variant="lighter" className="flex items-center gap-1">
-                    <span className="max-w-[160px] truncate">{formatDimensionValue(filter.dimension, filter.value)}</span>
-                    <button
-                        type="button"
-                        onClick={clearFilter}
-                        className="text-text-muted hover:text-text-strong"
-                        aria-label="Clear filter"
-                        title="Clear filter"
-                    >
-                        <X className="size-3" />
-                    </button>
-                </KeyValueBadge>
-            )}
-            <UsageFilterControl metric={metric} env={env} timeframe={timeframe} dimensions={dimensions} defaultDimension={dimension} onApply={applyFilter} />
-            <BreakdownControls
-                dimensions={availableDimensions}
-                dimension={dimension}
-                onChange={(d) => void setDimParam(d)}
-                canApplyToAll={canApplyToAll}
-                onApplyToAll={() => onApplyToAll(dimension)}
-            />
-        </>
+        <BreakdownFilterControl
+            metric={metric}
+            env={env}
+            timeframe={timeframe}
+            dimensions={dimensions}
+            breakdownDimension={dimension}
+            filter={filter}
+            onSetBreakdown={(d) => void setDimParam(d)}
+            onApplyFilter={applyFilter}
+            onClearFilter={clearFilter}
+            canApplyToAll={canApplyToAll}
+            onApplyToAll={() => onApplyToAll(dimension)}
+        />
     ) : undefined;
 
     return (

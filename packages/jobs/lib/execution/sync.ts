@@ -11,6 +11,7 @@ import {
     SyncStatus,
     accountService,
     configService,
+    connectionService,
     createSyncJob,
     customerKeyService,
     environmentService,
@@ -29,7 +30,7 @@ import {
     updateSyncJobStatus
 } from '@nangohq/shared';
 import { Err, Ok, getFrequencyMs, tagTraceUser } from '@nangohq/utils';
-import { sendSync as sendSyncWebhook } from '@nangohq/webhooks';
+import { resolveWebhookSettings, sendSync as sendSyncWebhook } from '@nangohq/webhooks';
 
 import { bigQueryClient, orchestratorClient, slackService } from '../clients.js';
 import { envs } from '../env.js';
@@ -344,7 +345,10 @@ export async function handleSyncSuccess({
             records: {} as Record<string, SyncResult>,
             runTimeSecs: runTime
         };
-        const webhookSettings = await externalWebhookService.get(nangoProps.environmentId);
+        const baseWebhookSettings = await externalWebhookService.get(nangoProps.environmentId);
+        const webhookSettings = baseWebhookSettings
+            ? resolveWebhookSettings(baseWebhookSettings, await connectionService.getConnectionConfig(connection))
+            : null;
         const webhookSigningSecret = webhookSettings
             ? await customerKeyService.getWebhookSigningKeyForEnv(db.knex, nangoProps.environmentId).then((r) => {
                   if (r.isErr()) throw r.error;
@@ -922,7 +926,10 @@ async function onFailure({
     }
 
     if (environment) {
-        const webhookSettings = await externalWebhookService.get(environment.id);
+        const baseWebhookSettings = await externalWebhookService.get(environment.id);
+        const webhookSettings = baseWebhookSettings
+            ? resolveWebhookSettings(baseWebhookSettings, await connectionService.getConnectionConfig(connection))
+            : null;
 
         if (team && syncConfig && providerConfig && webhookSettings) {
             const span = tracer.startSpan('jobs.sync.webhook', {

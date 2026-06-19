@@ -21,7 +21,7 @@ const seedStore = { provider: apiKeyProvider, integration: integrationFixture };
 /** Fill the single API key field and submit, driving Go into its success or error state. */
 async function submitCredentials(user: ReturnType<typeof userEvent.setup>): Promise<void> {
     await screen.findByRole('heading', { name: 'Link GitHub Account' });
-    const apiKeyInput = screen.getByLabelText('API Key', { exact: false });
+    const apiKeyInput = screen.getByLabelText('API Key', { exact: false, selector: 'input' });
     await user.type(apiKeyInput, 'secret-key');
     await user.click(screen.getByRole('button', { name: 'Connect' }));
 }
@@ -51,7 +51,7 @@ describe('Go', () => {
             renderApp({ route: '/go', seedStore });
             await screen.findByRole('heading', { name: 'Link GitHub Account' });
 
-            const apiKeyInput = screen.getByLabelText('API Key', { exact: false });
+            const apiKeyInput = screen.getByLabelText('API Key', { exact: false, selector: 'input' });
             apiKeyInput.focus();
             expect(apiKeyInput).toHaveFocus();
             await user.keyboard('secret-key{Enter}');

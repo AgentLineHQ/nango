@@ -1,1 +1,1 @@
-export { Button, type ButtonProps, IconButton, type IconButtonProps, buttonVariants } from './components/ui/button';
+export { Button, type ButtonProps, IconButton, type IconButtonProps, buttonVariantClasses, buttonVariants } from './components/ui/button';

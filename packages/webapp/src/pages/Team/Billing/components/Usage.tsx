@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 
 import { UsageChartCard } from './UsageChartCard';
 import { useBreakdownEnabled } from '../useBreakdownEnabled';
-import { useGlobalBreakdown } from '../useGlobalBreakdown';
+import { useGlobalGroupFilter } from '../useGlobalGroupFilter';
 import { CriticalErrorAlert } from '@/components/patterns/CriticalErrorAlert';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/Alert';
 import { StyledLink } from '@/components/ui/StyledLink';
@@ -42,7 +42,7 @@ export const Usage: React.FC<UsageProps> = ({ selectedMonth }) => {
 
     const { data: usage, isLoading, error: usageError } = useApiGetBillingUsage(env, timeframe, source);
 
-    const { isDivergingFromGlobal, applyToAll } = useGlobalBreakdown(METRICS);
+    const { isDivergingFromGlobal, applyToAll } = useGlobalGroupFilter(METRICS);
 
     if (usageError) {
         return <CriticalErrorAlert message="Error loading usage" />;

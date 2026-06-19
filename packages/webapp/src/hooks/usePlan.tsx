@@ -1,5 +1,5 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { APIError, apiFetch } from '../utils/api';
 import { globalEnv } from '../utils/env';
@@ -197,6 +197,42 @@ export function useApiGetBillingUsageDetail<M extends UsageMetric>(
 
 export const GetBillingUsageTopDimensionValuesQueryKey = ['plans', 'billing-usage', 'top-dimension-values'];
 
+// Top values for a (metric, dimension, month) are stable, so keep them fresh for a while —
+// reopening (or prefetching) the filter popover serves the cache instead of refetching.
+const TOP_DIMENSION_VALUES_STALE_TIME = 5 * 60 * 1000;
+
+function topDimensionValuesQueryKey(timeframe: { start: string; end: string } | undefined, metric: UsageMetric, dimension: string | null, limit: number) {
+    return [...GetBillingUsageTopDimensionValuesQueryKey, timeframe, metric, dimension, limit];
+}
+
+function fetchTopDimensionValues(
+    env: string,
+    metric: UsageMetric,
+    dimension: string | null,
+    timeframe: { start: string; end: string } | undefined,
+    limit: number
+) {
+    return async (): Promise<GetBillingUsageTopDimensionValues['Success']> => {
+        const params = new URLSearchParams({ env, metric, limit: String(limit) });
+        if (timeframe) {
+            params.append('from', timeframe.start);
+            params.append('to', timeframe.end);
+        }
+        if (dimension) {
+            params.append('dimension', dimension);
+        }
+
+        const res = await apiFetch(`/api/v1/plans/billing-usage/top-dimension-values?${params.toString()}`, { method: 'GET' });
+
+        const json = (await res.json()) as GetBillingUsageTopDimensionValues['Reply'];
+        if (res.status !== 200 || 'error' in json) {
+            throw new APIError({ res, json });
+        }
+
+        return json;
+    };
+}
+
 /**
  * Top-N seen values for a (metric, dimension) over a timeframe, ranked by usage.
  * Backs the filter typeahead so a value can be picked even when it isn't a
@@ -214,30 +250,37 @@ export function useApiGetBillingUsageTopDimensionValues<M extends UsageMetric>(
 ) {
     return useQuery<GetBillingUsageTopDimensionValues['Success'], APIError>({
         enabled: Boolean(env) && Boolean(timeframe) && Boolean(dimension) && (options?.enabled ?? true),
-        queryKey: [...GetBillingUsageTopDimensionValuesQueryKey, timeframe, metric, dimension, limit],
-        queryFn: async (): Promise<GetBillingUsageTopDimensionValues['Success']> => {
-            const params = new URLSearchParams({ env, metric, limit: String(limit) });
-            if (timeframe) {
-                params.append('from', timeframe.start);
-                params.append('to', timeframe.end);
-            }
-            // `dimension` is non-null whenever the query is enabled (guarded above).
-            if (dimension) {
-                params.append('dimension', dimension);
-            }
-
-            const res = await apiFetch(`/api/v1/plans/billing-usage/top-dimension-values?${params.toString()}`, {
-                method: 'GET'
-            });
-
-            const json = (await res.json()) as GetBillingUsageTopDimensionValues['Reply'];
-            if (res.status !== 200 || 'error' in json) {
-                throw new APIError({ res, json });
-            }
-
-            return json;
-        }
+        staleTime: TOP_DIMENSION_VALUES_STALE_TIME,
+        queryKey: topDimensionValuesQueryKey(timeframe, metric, dimension, limit),
+        queryFn: fetchTopDimensionValues(env, metric, dimension, timeframe, limit)
     });
+}
+
+/**
+ * Returns a callback that warms the top-values cache for a set of dimensions. Call it when the
+ * filter popover opens so picking a dimension shows its values instantly instead of spinning
+ * through a fetch. No-ops per dimension while the cached values are still fresh.
+ */
+export function useApiPrefetchBillingUsageTopDimensionValues(
+    env: string,
+    metric: UsageMetric,
+    timeframe: { start: string; end: string } | undefined,
+    limit: number
+) {
+    const queryClient = useQueryClient();
+    return useCallback(
+        (dimensions: readonly string[]) => {
+            if (!env || !timeframe) return;
+            for (const dimension of dimensions) {
+                void queryClient.prefetchQuery({
+                    staleTime: TOP_DIMENSION_VALUES_STALE_TIME,
+                    queryKey: topDimensionValuesQueryKey(timeframe, metric, dimension, limit),
+                    queryFn: fetchTopDimensionValues(env, metric, dimension, timeframe, limit)
+                });
+            }
+        },
+        [queryClient, env, metric, timeframe, limit]
+    );
 }
 
 export function useTrial(plan?: ApiPlan | null): { isTrial: boolean; isTrialOver: boolean; daysRemaining: number } {

@@ -2,14 +2,14 @@ import { parseAsString, useQueryState } from 'nuqs';
 import { useMemo } from 'react';
 
 import { BreakdownFilterControl } from './BreakdownFilterControl';
-import { BREAKDOWN_DIMENSIONS, DEFAULT_TOP_N, metricsSupportingDimension } from '../usageBreakdown';
+import { BREAKDOWN_DIMENSIONS, DEFAULT_TOP_N } from '../usageBreakdown';
 import { toChartSeries } from '../usageChartSeries';
 import { useBreakdownEnabled } from '../useBreakdownEnabled';
 import { ChartCard } from '@/components/patterns/chart';
 import { useApiGetBillingUsageDetail } from '@/hooks/usePlan';
 
 import type { AnyBreakdownDimension } from '../usageBreakdown';
-import type { GlobalBreakdownSelection } from '../useGlobalBreakdown';
+import type { GroupFilterSelection } from '../useGlobalGroupFilter';
 import type { ChartSeries } from '@/components/patterns/chart';
 import type { ApiBillingUsageMetric, UsageMetric } from '@nangohq/types';
 
@@ -21,10 +21,10 @@ interface UsageChartCardProps {
     isLoading: boolean;
     env: string;
     timeframe: { start: string; end: string };
-    /** Returns true if applying this panel's selection would change at least one other applicable panel. */
-    isDivergingFromGlobal: (metric: UsageMetric, dimension: GlobalBreakdownSelection) => boolean;
-    /** Apply this panel's selection to every applicable metric. */
-    onApplyToAll: (dimension: GlobalBreakdownSelection) => void;
+    /** Returns true if applying this panel's group + filter would change at least one other applicable panel. */
+    isDivergingFromGlobal: (metric: UsageMetric, selection: GroupFilterSelection) => boolean;
+    /** Apply this panel's group + filter to every applicable metric. */
+    onApplyToAll: (selection: GroupFilterSelection) => void;
 }
 
 /**
@@ -81,14 +81,6 @@ export const UsageChartCard: React.FC<UsageChartCardProps> = ({ metric, data, is
         return breakdownEntries ? toChartSeries(breakdownEntries, dimension) : [];
     }, [inBreakdownMode, dimension, breakdownEntries]);
 
-    // Drill in: clicking a non-'rest' series filters the panel to that value and drops the
-    // breakdown (one filter + one breakdown per panel — a second click replaces the filter).
-    const onSeriesClick = (series: ChartSeries) => {
-        if (series.isRest || series.value === undefined || dimension === null) return;
-        void setFilterParam(`${dimension}:${series.value}`);
-        void setDimParam(null);
-    };
-
     // Group and filter are independent slots, so clearing the filter only removes the filter —
     // it never touches the grouping.
     const clearFilter = () => {
@@ -102,8 +94,9 @@ export const UsageChartCard: React.FC<UsageChartCardProps> = ({ metric, data, is
         if (rawDimension === dim) void setDimParam(null);
     };
 
-    // "Apply to all" shows when at least one other applicable panel has a different selection.
-    const canApplyToAll = (dimension === null || metricsSupportingDimension(dimension).length > 1) && isDivergingFromGlobal(metric, dimension);
+    // "Apply to all" shows when applying this panel's group + filter would change another panel.
+    const selection = { group: dimension, filter };
+    const canApplyToAll = isDivergingFromGlobal(metric, selection);
 
     // Headline + chart source per state:
     // - filtered-only → swap in the filtered metric (single series + filtered total straight from the response).
@@ -111,21 +104,25 @@ export const UsageChartCard: React.FC<UsageChartCardProps> = ({ metric, data, is
     const chartData: ApiBillingUsageMetric | undefined = inFilterMode && !inBreakdownMode ? (detailMetric ?? data) : data;
     const totalOverride = inBreakdownMode && inFilterMode ? detailMetric?.total : undefined;
 
-    const headerActions = showControls ? (
-        <BreakdownFilterControl
-            metric={metric}
-            env={env}
-            timeframe={timeframe}
-            dimensions={dimensions}
-            breakdownDimension={dimension}
-            filter={filter}
-            onSetBreakdown={(d) => void setDimParam(d)}
-            onApplyFilter={applyFilter}
-            onClearFilter={clearFilter}
-            canApplyToAll={canApplyToAll}
-            onApplyToAll={() => onApplyToAll(dimension)}
-        />
-    ) : undefined;
+    // No data at all for this metric (ignoring filters) → nothing to slice, so hide the controls.
+    // If it's only empty because of the active filter, keep them in so the filter can be cleared.
+    const baseEmpty = !data || data.usage.every((u) => !u.quantity);
+    const headerActions =
+        showControls && !baseEmpty ? (
+            <BreakdownFilterControl
+                metric={metric}
+                env={env}
+                timeframe={timeframe}
+                dimensions={dimensions}
+                breakdownDimension={dimension}
+                filter={filter}
+                onSetBreakdown={(d) => void setDimParam(d)}
+                onApplyFilter={applyFilter}
+                onClearFilter={clearFilter}
+                canApplyToAll={canApplyToAll}
+                onApplyToAll={() => onApplyToAll(selection)}
+            />
+        ) : undefined;
 
     return (
         <ChartCard
@@ -137,7 +134,6 @@ export const UsageChartCard: React.FC<UsageChartCardProps> = ({ metric, data, is
             detailLoading={isDetail ? detailQuery.isLoading : false}
             detailError={isDetail ? detailQuery.isError : false}
             totalOverride={totalOverride}
-            onSeriesClick={showControls ? onSeriesClick : undefined}
             filtered={inFilterMode}
         />
     );

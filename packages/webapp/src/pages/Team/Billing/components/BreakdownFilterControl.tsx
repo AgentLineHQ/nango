@@ -1,20 +1,23 @@
-import { Check, ChevronDown, ChevronLeft, Layers, Search, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronsUpDown, Layers, ListFilter, SquareStack, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { DEFAULT_TOP_N, DIMENSION_LABELS, formatDimensionValue } from '../usageBreakdown';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/InputGroup';
+import { InputGroup, InputGroupInput } from '@/components/ui/InputGroup';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/Popover';
 import { Spinner } from '@/components/ui/Spinner';
-import { useApiGetBillingUsageTopDimensionValues } from '@/hooks/usePlan';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/Tooltip';
+import { useApiGetBillingUsageTopDimensionValues, useApiPrefetchBillingUsageTopDimensionValues } from '@/hooks/usePlan';
 
 import type { AnyBreakdownDimension } from '../usageBreakdown';
 import type { UsageMetric } from '@nangohq/types';
 
-// Shared styling so "Group by" and "Filter" read as the same kind of control.
+// Mirror the Select component's trigger / content / item styling so these read as the
+// same kind of dropdown as the rest of the dashboard.
 const TRIGGER =
-    'flex h-8 items-center gap-1.5 rounded-md border border-border-muted px-2.5 text-body-small-regular text-text-secondary hover:bg-state-hover hover:text-text-strong';
-const ITEM = 'flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1 text-left text-text-secondary hover:bg-state-hover hover:text-text-strong';
-const POPOVER = 'flex flex-col rounded-[4px] border-[0.5px] border-border-default bg-surface-overlay p-1.5';
+    'flex h-7 w-fit items-center gap-1.5 rounded border border-border-muted bg-surface-overlay px-1.5 py-0.5 text-s text-text-secondary whitespace-nowrap hover:bg-state-hover focus-default';
+const CONTENT = 'z-50 flex flex-col overflow-y-auto rounded border border-border-muted bg-surface-overlay p-1 text-text-secondary';
+const ITEM =
+    'flex h-7 w-full cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-body-medium-regular text-text-secondary hover:bg-state-hover hover:text-text-strong';
 
 /** Inline ✕ inside a trigger that clears the slot without opening the popover. */
 const ClearButton: React.FC<{ onClear: () => void; label: string }> = ({ onClear, label }) => (
@@ -52,18 +55,17 @@ interface BreakdownFilterControlProps {
     onSetBreakdown: (dimension: AnyBreakdownDimension | null) => void;
     onApplyFilter: (dimension: AnyBreakdownDimension, value: string) => void;
     onClearFilter: () => void;
-    // Apply-to-all plumbing — kept wired but hidden (see TODO below).
+    /** Show "Apply to all" — applying this panel's group + filter would change another panel. */
     canApplyToAll: boolean;
     onApplyToAll: () => void;
 }
 
 /**
- * Two explicit, independent slots for a usage panel: "Group by" (one breakdown
- * dimension) and "Filter" (one dimension = value). Each is always explicit about its
- * own dimension; the dimension used by one is excluded from the other so they can
- * never collide (the backend rejects same-dim filter+breakdown). Clearing a slot is
- * the ✕ on its trigger — not an item inside the dropdown. The filter's value list is
- * the top-N from the server, with free text to reach the long tail in "Rest".
+ * Two explicit, independent slots for a usage panel: "Group" (one breakdown dimension)
+ * and "Filter" (one dimension = value). Each is always explicit about its own
+ * dimension; the dimension used by one is excluded from the other so they can never
+ * collide (the backend rejects same-dim filter+breakdown). Clearing a slot is the ✕ on
+ * its trigger. "Apply to all" copies both slots to every metric that supports them.
  */
 export const BreakdownFilterControl: React.FC<BreakdownFilterControlProps> = ({
     metric,
@@ -80,8 +82,9 @@ export const BreakdownFilterControl: React.FC<BreakdownFilterControlProps> = ({
 }) => {
     const [groupOpen, setGroupOpen] = useState(false);
     const [filterOpen, setFilterOpen] = useState(false);
-    // The filter dimension being configured (null = the dimension list).
-    const [pickedDim, setPickedDim] = useState<AnyBreakdownDimension | null>(null);
+    // The filter dimension being configured (null = the dimension list). Seed it from the active
+    // filter so reopening an existing filter renders its value list immediately (no dimension-list flash).
+    const [pickedDim, setPickedDim] = useState<AnyBreakdownDimension | null>(filter?.dimension ?? null);
     const [search, setSearch] = useState('');
 
     // Each slot's dimension is excluded from the other's options.
@@ -89,15 +92,14 @@ export const BreakdownFilterControl: React.FC<BreakdownFilterControlProps> = ({
     const filterDimOptions = dimensions.filter((d) => d !== breakdownDimension);
 
     const topQuery = useApiGetBillingUsageTopDimensionValues(env, metric, pickedDim, timeframe, DEFAULT_TOP_N, { enabled: filterOpen && pickedDim !== null });
+    // Warm every filterable dimension's values when the popover opens, so picking one is instant.
+    const prefetchValues = useApiPrefetchBillingUsageTopDimensionValues(env, metric, timeframe, DEFAULT_TOP_N);
     const values = topQuery.data?.data.values ?? [];
     const trimmed = search.trim();
     const q = trimmed.toLowerCase();
     const matches = q ? values.filter((v) => v.label.toLowerCase().includes(q) || v.id.toLowerCase().includes(q)) : values;
     const showCreate = trimmed.length > 0 && !values.some((v) => v.id === trimmed);
 
-    // When opening the filter: jump straight to the active filter's dimension (to edit it), or
-    // to the only available dimension; otherwise show the dimension list first.
-    const initialFilterDim = () => filter?.dimension ?? (filterDimOptions.length === 1 ? filterDimOptions[0] : null);
     const closeFilter = () => {
         setFilterOpen(false);
         setPickedDim(null);
@@ -108,15 +110,27 @@ export const BreakdownFilterControl: React.FC<BreakdownFilterControlProps> = ({
         closeFilter();
     };
 
-    // TODO(EXT-1145): re-enable "Apply to all" once it fans out / clears filters too (not just
-    // the breakdown dimension). Kept wired so it's a one-line flip.
-    const showApplyToAll: boolean = false;
-
     return (
         <div className="flex items-center gap-2">
+            {canApplyToAll && (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            type="button"
+                            onClick={onApplyToAll}
+                            aria-label="Apply to all"
+                            className="flex h-7 items-center justify-center px-1 text-text-muted hover:text-text-strong"
+                        >
+                            <SquareStack className="size-4" />
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Apply this group and filter to every applicable metric</TooltipContent>
+                </Tooltip>
+            )}
             <Popover open={groupOpen} onOpenChange={setGroupOpen}>
                 <PopoverTrigger asChild>
                     <button type="button" className={TRIGGER} title="Group this metric by a dimension">
+                        <Layers className="size-3.5 shrink-0 text-text-muted" />
                         {breakdownDimension ? (
                             <>
                                 <span className="text-text-muted">Group:</span>
@@ -126,10 +140,10 @@ export const BreakdownFilterControl: React.FC<BreakdownFilterControlProps> = ({
                         ) : (
                             <span>Group</span>
                         )}
-                        <ChevronDown className="size-3.5 shrink-0 text-text-muted" />
+                        <ChevronsUpDown className="size-3 shrink-0 text-text-muted" />
                     </button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className={`w-56 ${POPOVER}`}>
+                <PopoverContent align="end" className={`w-52 ${CONTENT}`}>
                     {groupOptions.map((d) => (
                         <button
                             key={d}
@@ -152,66 +166,63 @@ export const BreakdownFilterControl: React.FC<BreakdownFilterControlProps> = ({
                 onOpenChange={(next) => {
                     setFilterOpen(next);
                     setSearch('');
-                    setPickedDim(next ? initialFilterDim() : null);
+                    // Reset to the active filter's dimension (its value list) on both open and close, so
+                    // reopening an existing filter never flashes the dimension list. Adding (no filter)
+                    // starts at the dimension list.
+                    setPickedDim(filter?.dimension ?? null);
+                    // Warm every filterable dimension's values up front, so picking one shows results instantly.
+                    if (next) prefetchValues(filterDimOptions);
                 }}
             >
                 <PopoverTrigger asChild>
                     <button type="button" className={TRIGGER} title="Filter this metric to a single value">
+                        <ListFilter className="size-3.5 shrink-0 text-text-muted" />
                         {filter ? (
                             <>
-                                <span className="max-w-[180px] truncate text-text-strong">
-                                    {DIMENSION_LABELS[filter.dimension]} = {formatDimensionValue(filter.dimension, filter.value)}
-                                </span>
+                                <span className="text-text-muted">{DIMENSION_LABELS[filter.dimension]}:</span>
+                                <span className="max-w-[160px] truncate text-text-strong">{formatDimensionValue(filter.dimension, filter.value)}</span>
                                 <ClearButton onClear={onClearFilter} label="Clear filter" />
                             </>
                         ) : (
                             <span>Filter</span>
                         )}
-                        <ChevronDown className="size-3.5 shrink-0 text-text-muted" />
+                        <ChevronsUpDown className="size-3 shrink-0 text-text-muted" />
                     </button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className={`w-72 ${POPOVER}`}>
+                <PopoverContent align="end" className={`w-72 ${CONTENT}`}>
                     {pickedDim === null ? (
-                        <>
-                            {filterDimOptions.map((d) => (
-                                <button
-                                    key={d}
-                                    type="button"
-                                    onClick={() => {
-                                        setPickedDim(d);
-                                        setSearch('');
-                                    }}
-                                    className={ITEM}
-                                >
-                                    <span className="truncate">{DIMENSION_LABELS[d]}</span>
-                                    {d === filter?.dimension && <Check className="size-3.5 shrink-0 text-text-muted" />}
-                                </button>
-                            ))}
-                        </>
+                        filterDimOptions.map((d) => (
+                            <button
+                                key={d}
+                                type="button"
+                                onClick={() => {
+                                    setPickedDim(d);
+                                    setSearch('');
+                                }}
+                                className={ITEM}
+                            >
+                                <span className="truncate">{DIMENSION_LABELS[d]}</span>
+                                {d === filter?.dimension && <Check className="size-3.5 shrink-0 text-text-muted" />}
+                            </button>
+                        ))
                     ) : (
                         <>
-                            {/* Back to the dimension list — only when there's another dimension to switch to. */}
-                            {filterDimOptions.length > 1 && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setPickedDim(null);
-                                        setSearch('');
-                                    }}
-                                    className="flex w-full items-center gap-1 rounded-[4px] px-2 py-1 text-left text-text-muted hover:text-text-strong"
-                                >
-                                    <ChevronLeft className="size-3.5 shrink-0" />
-                                    <span className="truncate">{DIMENSION_LABELS[pickedDim]}</span>
-                                </button>
-                            )}
-                            <InputGroup className="h-auto rounded-[4px] border-[0.5px] border-border-muted px-2.5 py-1.5">
-                                <InputGroupAddon className="p-0 pr-2">
-                                    <Search className="size-4 text-text-muted" />
-                                </InputGroupAddon>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPickedDim(null);
+                                    setSearch('');
+                                }}
+                                className="flex w-full items-center gap-1 rounded px-2 py-1 text-left text-text-muted hover:text-text-strong"
+                            >
+                                <ChevronLeft className="size-3.5 shrink-0" />
+                                <span className="truncate">{DIMENSION_LABELS[pickedDim]}</span>
+                            </button>
+                            <InputGroup className="h-auto rounded border-[0.5px] border-border-muted px-2.5 py-1.5">
                                 <InputGroupInput
                                     autoFocus
                                     type="text"
-                                    placeholder={`Search ${DIMENSION_LABELS[pickedDim].toLowerCase()}…`}
+                                    placeholder="Search…"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
                                     onKeyDown={(e) => {
@@ -259,13 +270,6 @@ export const BreakdownFilterControl: React.FC<BreakdownFilterControlProps> = ({
                     )}
                 </PopoverContent>
             </Popover>
-
-            {showApplyToAll && canApplyToAll && (
-                <button type="button" onClick={onApplyToAll} className="flex items-center gap-1 text-text-muted text-body-small-regular hover:text-text-strong">
-                    <Layers className="size-3.5" />
-                    Apply to all
-                </button>
-            )}
         </div>
     );
 };

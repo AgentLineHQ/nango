@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 
 import { BreakdownChart } from './BreakdownChart';
 import { ChartLegend } from './ChartLegend';
-import { useChartData } from './useChartData';
+import { useChartData, visibleBreakdownTotal } from './useChartData';
 import { useChartInteractions } from './useChartInteractions';
 import { InfoTooltip } from '../../ui/InfoTooltip';
 import { Skeleton } from '../../ui/Skeleton';
@@ -32,8 +32,6 @@ interface ChartCardProps {
     detailError?: boolean;
     /** Overrides the headline number (e.g. a filtered slice's total when re-broken-down). */
     totalOverride?: number;
-    /** Drill in to a single series' value (legend funnel / chart band click). Omitted for the 'rest' rollup. */
-    onSeriesClick?: (series: ChartSeries) => void;
     /** The panel is scoped to a filtered slice — keeps the controls visible when empty and adjusts the AVG tooltip copy. */
     filtered?: boolean;
 }
@@ -53,7 +51,6 @@ export const ChartCard: React.FC<ChartCardProps> = ({
     detailLoading,
     detailError,
     totalOverride,
-    onSeriesClick,
     filtered
 }) => {
     const isBreakdown = breakdownSeries !== undefined;
@@ -80,8 +77,15 @@ export const ChartCard: React.FC<ChartCardProps> = ({
     // In breakdown mode the chart shows only the (possibly filtered) breakdown series, so
     // emptiness is about those; otherwise it's the base/filtered single series.
     const effectiveEmpty = isBreakdown ? !hasBreakdownSeries : isEmpty;
-    // A filtered slice's total wins (the chart shows the filtered series); otherwise the base total.
-    const headlineTotal = totalOverride ?? (isEmpty ? undefined : data?.total);
+    // In breakdown mode the headline tracks the visible series, so isolating/hiding a slice
+    // updates the number directly (no backend round-trip). With nothing hidden, keep the exact
+    // backend total — a filtered slice's `totalOverride`, else the metric total.
+    const visibleKeys = (breakdownSeries ?? []).filter((s) => !interactions.isSeriesHidden(s.key)).map((s) => s.key);
+    const allSeriesVisible = visibleKeys.length === (breakdownSeries?.length ?? 0);
+    const headlineTotal =
+        isBreakdown && !allSeriesVisible
+            ? visibleBreakdownTotal(breakdownChartData, visibleKeys, isCumulative, todayDateKey)
+            : (totalOverride ?? (isEmpty ? undefined : data?.total));
     // Wait for the base metric to load before drawing — otherwise the chart briefly renders
     // with the wrong type (bars before `view_mode` is known) next to the spinner.
     const showChart = !isLoading && !effectiveEmpty && !showDetailSpinner && !showDetailError && (!isBreakdown || hasBreakdownSeries);
@@ -130,11 +134,8 @@ export const ChartCard: React.FC<ChartCardProps> = ({
                             series={breakdownSeries ?? []}
                             todayDateKey={todayDateKey}
                             interactions={interactions}
-                            onSeriesClick={onSeriesClick}
                         />
-                        {breakdownSeries && breakdownSeries.length > 0 && (
-                            <ChartLegend series={breakdownSeries} interactions={interactions} onSeriesClick={onSeriesClick} />
-                        )}
+                        {breakdownSeries && breakdownSeries.length > 0 && <ChartLegend series={breakdownSeries} interactions={interactions} />}
                     </>
                 )}
 
